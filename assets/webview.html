@@ -728,7 +728,7 @@
   function fmt(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');}
 
   document.getElementById('root').innerHTML=`
-    <div class="hdr"><span>🎬</span><span class="hdr-title">${title}</span><span class="hdr-badge">${segs.length} Segs</span></div>
+    <div class="hdr"><span>🎬</span><span class="hdr-title" id="play-title"></span><span class="hdr-badge">${segs.length} Segs</span></div>
     <div class="stage"><div class="stage-bg">
       <div class="zone z-left" id="z-left"></div><div class="zone z-right" id="z-right"></div>
       <div class="zone z-center" id="z-center"></div><div class="zone z-top" id="z-top"></div>
@@ -743,9 +743,21 @@
       </div>
       <button class="speed-btn" id="speed-btn">1×</button>
     </div>`;
+  document.getElementById('play-title').textContent = title;
 
   const legendEl=document.getElementById('legend');
-  spList.forEach(sp=>{legendEl.innerHTML+=`<div class="leg-item"><div class="leg-dot" style="background:${hexColor[colorMap[sp]]}"></div><span>Speaker ${sp}</span></div>`;});
+  spList.forEach(sp=>{
+    const item = document.createElement('div');
+    item.className = 'leg-item';
+    const dot = document.createElement('div');
+    dot.className = 'leg-dot';
+    dot.style.background = hexColor[colorMap[sp]];
+    const span = document.createElement('span');
+    span.textContent = `Speaker ${sp}`;
+    item.appendChild(dot);
+    item.appendChild(span);
+    legendEl.appendChild(item);
+  });
 
   let curTime=0,playing=false,lastTs=null,rafId=null,speed=1;
   const SPEEDS=[0.5,1,1.5,2];let spdIdx=1;const active=new Map();
