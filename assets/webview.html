@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <!-- Copyright 2026 Google LLC. Licensed under Apache 2.0 -->
-<html lang="zh">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>气泡字幕</title>
+  <title>Speech Bubbles</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -206,7 +206,7 @@
 (function () {
   const params = new URLSearchParams(location.search);
   const mode   = params.get('mode') || 'camera';
-  const lang   = params.get('lang') || 'zh-CN';
+  const lang   = params.get('lang') || 'en-US';
 
   /* ══════════════════════════════════════════
      WHISPER ENGINE
@@ -216,7 +216,7 @@
     modelId() { return lang.startsWith('zh') ? 'Xenova/whisper-tiny' : 'Xenova/whisper-tiny.en'; },
     showOverlay() {
       const ov = document.createElement('div'); ov.id = 'wl-overlay';
-      ov.innerHTML = `<div class="wl-box"><div class="wl-icon">🤖</div><div class="wl-title">加载 Whisper 模型</div><div class="wl-sub">首次约 75MB，之后本地缓存<br>语言：${lang.startsWith('zh')?'中文':'English'}</div><div class="wl-bar"><div class="wl-fill" id="wl-fill"></div></div><div class="wl-pct" id="wl-pct">连接中…</div><button class="wl-skip" id="wl-skip">跳过，用云端识别</button></div>`;
+      ov.innerHTML = `<div class="wl-box"><div class="wl-icon">🤖</div><div class="wl-title">Loading Whisper Model</div><div class="wl-sub">First time ~75MB, then cached locally<br>Language: ${lang.startsWith('zh')?'Chinese':'English'}</div><div class="wl-bar"><div class="wl-fill" id="wl-fill"></div></div><div class="wl-pct" id="wl-pct">Connecting...</div><button class="wl-skip" id="wl-skip">Skip, use cloud STT</button></div>`;
       document.body.appendChild(ov);
       document.getElementById('wl-skip').addEventListener('click', () => W.skip());
     },
@@ -234,13 +234,13 @@
         tf.env.allowLocalModels = false; tf.env.useBrowserCache = true;
         W.pipe = await tf.pipeline('automatic-speech-recognition', W.modelId(), {
           progress_callback: (info) => {
-            if (info.status === 'downloading') { const p = info.total>0?Math.round(info.loaded/info.total*100):0; W.updateProgress(p, `下载 ${p}%  ${(info.loaded/1024/1024).toFixed(1)}MB`); }
-            else if (info.status === 'loading') W.updateProgress(95, '载入中…');
-            else if (info.status === 'ready')   W.updateProgress(100, '✅ 就绪');
+            if (info.status === 'downloading') { const p = info.total>0?Math.round(info.loaded/info.total*100):0; W.updateProgress(p, `Downloading ${p}%  ${(info.loaded/1024/1024).toFixed(1)}MB`); }
+            else if (info.status === 'loading') W.updateProgress(95, 'Loading...');
+            else if (info.status === 'ready')   W.updateProgress(100, '✅ Ready');
           }
         });
         W.ready = true; W.loading = false; W.hideOverlay(); onReady(true);
-      } catch(err) { console.error(err); W.updateProgress(0, '❌ 失败，切换云端'); setTimeout(()=>W.skip(), 1500); }
+      } catch(err) { console.error(err); W.updateProgress(0, '❌ Failed, switching to cloud'); setTimeout(()=>W.skip(), 1500); }
     },
     async transcribe(blob) {
       if (!W.pipe) return '';
@@ -267,7 +267,7 @@
   /* ══ STT toggle pill ══ */
   function addSttToggle(onSwitch) {
     const pill = document.createElement('div'); pill.id = 'stt-toggle';
-    pill.innerHTML = `<div class="stt-opt active" data-v="whisper">🤖 本地</div><div class="stt-opt" data-v="cloud">☁️ 云端</div>`;
+    pill.innerHTML = `<div class="stt-opt active" data-v="whisper">🤖 Local</div><div class="stt-opt" data-v="cloud">☁️ Cloud</div>`;
     document.body.appendChild(pill);
     pill.addEventListener('click', e => {
       const opt = e.target.closest('.stt-opt'); if (!opt) return;
@@ -295,7 +295,7 @@
       <video id="cam-video" autoplay playsinline muted></video>
       <div id="face-box"></div>
       <div id="cam-interim"></div>
-      <div id="cam-status"><div class="dot" id="cam-dot"></div><span id="cam-txt">初始化中…</span></div>
+      <div id="cam-status"><div class="dot" id="cam-dot"></div><span id="cam-txt">Initializing...</span></div>
       <div id="cam-ctrl">
         <button class="cam-btn" id="cam-flip">🔄</button>
         <button class="cam-btn cam-mic-btn" id="cam-mic">🎙️</button>
@@ -380,8 +380,8 @@
         videoStream = await navigator.mediaDevices.getUserMedia({ video:{facingMode:useFront?'user':'environment'}, audio:false });
         video.srcObject = videoStream;
         video.style.transform = useFront ? 'scaleX(-1)' : 'none';
-        setStatus('', '📷 就绪');
-      } catch(e) { setStatus('', '📷 不可用'); video.style.display='none'; }
+        setStatus('', '📷 Ready');
+      } catch(e) { setStatus('', '📷 Unavailable'); video.style.display='none'; }
     }
 
     /* ── Face Detection (face-api.js TinyFaceDetector) ──
@@ -405,7 +405,7 @@
       const s2 = document.createElement('script');
       s2.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js';
       s2.onload = () => initFaceDetector();
-      s2.onerror = () => setStatus('', '📷 人脸检测不可用');
+      s2.onerror = () => setStatus('', '📷 Face detection unavailable');
       document.head.appendChild(s2);
     }
 
@@ -417,7 +417,7 @@
         await faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL);
         faceApiReady = true;
         faceDetecting = true;
-        setStatus('face', '👤 人脸检测就绪');
+        setStatus('face', '👤 Face detection ready');
         detectLoop();
       } catch(e) { console.error('face-api init failed', e); }
     }
@@ -460,14 +460,14 @@
             faceBoxEl.style.width  = smoothBox.width  + 'px';
             faceBoxEl.style.height = smoothBox.height + 'px';
             faceBoxEl.classList.add('detected');
-            if (isRecording) setStatus('face', '👤 录音中…');
-            else setStatus('face', '👤 检测到人脸');
+            if (isRecording) setStatus('face', '👤 Recording...');
+            else setStatus('face', '👤 Face detected');
           }
         } else {
           // Fade out face box when no face
           smoothBox = null;
           faceBoxEl.classList.remove('detected');
-          if (!isRecording) setStatus('', '🔍 寻找人脸…');
+          if (!isRecording) setStatus('', '🔍 Looking for face...');
         }
       } catch(e) { /* swallow per-frame errors */ }
       setTimeout(detectLoop, 160); // ~6fps
@@ -528,7 +528,7 @@
     async function startWhisperRec() {
       let audioStream;
       try { audioStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-      catch(e) { setStatus('', '🎙️ 麦克风被拒绝'); return; }
+      catch(e) { setStatus('', '🎙️ Mic denied'); return; }
 
       // Start VAD monitoring
       VAD.init(audioStream);
@@ -540,16 +540,16 @@
 
         // VAD gate: skip chunk if no speech detected
         if (!VAD.speaking) {
-          setStatus(smoothBox?'face':'live', smoothBox?'👤 等待说话…':'🔇 静默中…');
+          setStatus(smoothBox?'face':'live', smoothBox?'👤 Waiting for speech...':'🔇 Silence...');
           return;
         }
 
         micBtn.className = 'cam-btn cam-mic-btn thinking';
-        setStatus('think', '🤖 识别中…');
+        setStatus('think', '🤖 Recognizing...');
         const text = await W.transcribe(e.data);
         if (isRecording) {
           micBtn.className = 'cam-btn cam-mic-btn recording';
-          setStatus(smoothBox?'face':'live', smoothBox?'👤 录音中…':'🔴 录音中…');
+          setStatus(smoothBox?'face':'live', smoothBox?'👤 Recording...':'🔴 Recording...');
           addCamBubble(text);
         }
       };
@@ -557,7 +557,7 @@
       isRecording = true;
       micBtn.className = 'cam-btn cam-mic-btn recording';
       micBtn.textContent = '⏹️';
-      setStatus(smoothBox?'face':'live', smoothBox?'👤 录音中…':'🔴 录音中…');
+      setStatus(smoothBox?'face':'live', smoothBox?'👤 Recording...':'🔴 Recording...');
     }
 
     function stopWhisperRec() {
@@ -566,7 +566,7 @@
       if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
       mediaRec = null;
       micBtn.className = 'cam-btn cam-mic-btn'; micBtn.textContent = '🎙️';
-      setStatus(smoothBox?'face':'', smoothBox?'👤 检测到人脸':'📷 就绪');
+      setStatus(smoothBox?'face':'', smoothBox?'👤 Face detected':'📷 Ready');
     }
 
     // ── Cloud speech mode ──
@@ -574,10 +574,10 @@
       speechRec = buildSpeechRec(
         t => addCamBubble(t),
         t => { interimEl.textContent = t; interimEl.style.display = 'block'; },
-        e => { setStatus('', '错误:'+e.error); stopCloudRec(); },
+        e => { setStatus('', 'Error:'+e.error); stopCloudRec(); },
         () => { if(isRecording) try{speechRec.start();}catch(_){} }
       );
-      if (!speechRec) { setStatus('', '不支持语音识别'); return; }
+      if (!speechRec) { setStatus('', 'Speech recognition not supported'); return; }
       isRecording = true;
       micBtn.className = 'cam-btn cam-mic-btn recording'; micBtn.textContent = '⏹️';
       setStatus('live', '🔴 识别中…');
@@ -588,7 +588,7 @@
       isRecording = false; interimEl.style.display = 'none';
       try { speechRec && speechRec.stop(); } catch(_) {} speechRec = null;
       micBtn.className = 'cam-btn cam-mic-btn'; micBtn.textContent = '🎙️';
-      setStatus(smoothBox?'face':'', smoothBox?'👤 检测到人脸':'📷 就绪');
+      setStatus(smoothBox?'face':'', smoothBox?'👤 Face detected':'📷 Ready');
     }
 
     micBtn.addEventListener('click', () => {
@@ -615,7 +615,7 @@
       loadFaceApi();  // non-blocking
     });
     W.load(ok => {
-      if (!faceApiReady) setStatus('', ok ? '🤖 Whisper 就绪' : '☁️ 云端模式');
+      if (!faceApiReady) setStatus('', ok ? '🤖 Whisper Ready' : '☁️ Cloud Mode');
     });
     return;
   }
@@ -625,15 +625,15 @@
   ═══════════════════════════════════════ */
   if (mode === 'record') {
     document.getElementById('root').innerHTML = `
-      <div class="hdr"><span>🎙️</span><span class="hdr-title">实时气泡字幕</span><span class="hdr-badge" id="stt-badge">Whisper</span></div>
+      <div class="hdr"><span>🎙️</span><span class="hdr-title">Real-time Speech Bubbles</span><span class="hdr-badge" id="stt-badge">Whisper</span></div>
       <div class="stage"><div class="stage-bg">
         <div class="zone z-center" id="z-center"></div>
         <div class="interim-bubble" id="interim"></div>
       </div></div>
       <div class="ctrl">
-        <button class="clr-btn" id="btn-clear">清空</button>
+        <button class="clr-btn" id="btn-clear">Clear</button>
         <button class="mic-btn" id="mic-btn">🎙️</button>
-        <div class="rec-status" id="rec-status">点击麦克风<br>开始录音</div>
+        <div class="rec-status" id="rec-status">Tap mic<br>to start</div>
       </div>`;
 
     const micBtn    = document.getElementById('mic-btn');
@@ -677,32 +677,32 @@
     };
 
     async function startWhisperRec() {
-      let as; try{as=await navigator.mediaDevices.getUserMedia({audio:true});}catch(e){recStatus.textContent='🎙️ 被拒绝';return;}
+      let as; try{as=await navigator.mediaDevices.getUserMedia({audio:true});}catch(e){recStatus.textContent='🎙️ Denied';return;}
       recVAD.init(as);
       const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'].find(t=>MediaRecorder.isTypeSupported(t))||'';
       mediaRec=new MediaRecorder(as,mime?{mimeType:mime}:{});
       mediaRec.ondataavailable=async e=>{
         if(!isRec||!e.data||e.data.size<1000)return;
-        if(!recVAD.speaking){recStatus.innerHTML='🔇 静默中…';return;}
-        micBtn.className='mic-btn thinking'; recStatus.innerHTML='🤖 识别中…';
+        if(!recVAD.speaking){recStatus.innerHTML='🔇 Silence...';return;}
+        micBtn.className='mic-btn thinking'; recStatus.innerHTML='🤖 Recognizing...';
         const text=await W.transcribe(e.data);
-        if(isRec){micBtn.className='mic-btn recording';recStatus.innerHTML='录音中…<br>说话吧';addBubble(text);}
+        if(isRec){micBtn.className='mic-btn recording';recStatus.innerHTML='Recording...<br>Speak now';addBubble(text);}
       };
-      mediaRec.start(3000); isRec=true; micBtn.className='mic-btn recording'; micBtn.textContent='⏹️'; recStatus.innerHTML='录音中…<br>说话吧';
+      mediaRec.start(3000); isRec=true; micBtn.className='mic-btn recording'; micBtn.textContent='⏹️'; recStatus.innerHTML='Recording...<br>Speak now';
     }
-    function stopWhisperRec(){isRec=false;recVAD.destroy();if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();mediaRec=null;micBtn.className='mic-btn';micBtn.textContent='🎙️';recStatus.innerHTML='点击麦克风<br>开始录音';}
+    function stopWhisperRec(){isRec=false;recVAD.destroy();if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();mediaRec=null;micBtn.className='mic-btn';micBtn.textContent='🎙️';recStatus.innerHTML='Tap mic<br>to start';}
     function startCloudRec(){
-      speechRec=buildSpeechRec(t=>{addBubble(t);},t=>{interimEl.textContent=t;interimEl.style.display='block';},e=>{recStatus.textContent='错误:'+e.error;stopCloudRec();},()=>{if(isRec)try{speechRec.start();}catch(_){}});
-      if(!speechRec){recStatus.textContent='不支持语音识别';return;}
-      isRec=true;micBtn.className='mic-btn recording';micBtn.textContent='⏹️';recStatus.innerHTML='录音中…<br>说话吧';
+      speechRec=buildSpeechRec(t=>{addBubble(t);},t=>{interimEl.textContent=t;interimEl.style.display='block';},e=>{recStatus.textContent='Error:'+e.error;stopCloudRec();},()=>{if(isRec)try{speechRec.start();}catch(_){}});
+      if(!speechRec){recStatus.textContent='Speech recognition not supported';return;}
+      isRec=true;micBtn.className='mic-btn recording';micBtn.textContent='⏹️';recStatus.innerHTML='Recording...<br>Speak now';
       try{speechRec.start();}catch(_){}
     }
-    function stopCloudRec(){isRec=false;try{speechRec&&speechRec.stop();}catch(_){}speechRec=null;micBtn.className='mic-btn';micBtn.textContent='🎙️';interimEl.style.display='none';recStatus.innerHTML='点击麦克风<br>开始录音';}
+    function stopCloudRec(){isRec=false;try{speechRec&&speechRec.stop();}catch(_){}speechRec=null;micBtn.className='mic-btn';micBtn.textContent='🎙️';interimEl.style.display='none';recStatus.innerHTML='Tap mic<br>to start';}
 
     micBtn.addEventListener('click',()=>{if(isRec){W.useWhisper?stopWhisperRec():stopCloudRec();return;}W.useWhisper?startWhisperRec():startCloudRec();});
     btnClear.addEventListener('click',()=>{zone.innerHTML='';count=0;interimEl.style.display='none';});
-    addSttToggle(ok=>{if(isRec){W.useWhisper?stopWhisperRec():stopCloudRec();isRec=false;}badge.textContent=(ok&&W.ready)?'Whisper ✅':'云端';});
-    W.load(ok=>{badge.textContent=ok?'Whisper ✅':'云端';if(ok)recStatus.innerHTML='🤖 Whisper 就绪<br>点击开始';});
+    addSttToggle(ok=>{if(isRec){W.useWhisper?stopWhisperRec():stopCloudRec();isRec=false;}badge.textContent=(ok&&W.ready)?'Whisper ✅':'Cloud';});
+    W.load(ok=>{badge.textContent=ok?'Whisper ✅':'Cloud';if(ok)recStatus.innerHTML='🤖 Whisper Ready<br>Tap to start';});
     return;
   }
 
@@ -710,15 +710,15 @@
      PLAY MODE
   ═══════════════════════════════════════ */
   const raw=params.get('data');
-  if(!raw){document.getElementById('root').innerHTML='<div class="center-msg"><div class="icon">⚠️</div><div>无字幕数据</div></div>';return;}
-  let data; try{data=JSON.parse(decodeURIComponent(raw));}catch(e){document.getElementById('root').innerHTML='<div class="center-msg"><div class="icon">❌</div><div>数据解析失败</div></div>';return;}
-  const segs=data.segments||[],totalDur=data.duration||segs[segs.length-1]?.end||60,title=data.title||'气泡字幕';
+  if(!raw){document.getElementById('root').innerHTML='<div class="center-msg"><div class="icon">⚠️</div><div>No subtitle data</div></div>';return;}
+  let data; try{data=JSON.parse(decodeURIComponent(raw));}catch(e){document.getElementById('root').innerHTML='<div class="center-msg"><div class="icon">❌</div><div>Data parsing failed</div></div>';return;}
+  const segs=data.segments||[],totalDur=data.duration||segs[segs.length-1]?.end||60,title=data.title||'Speech Bubbles';
   const spList=[...new Set(segs.map(s=>s.speaker||'A'))],colorMap={},hexColor={A:'#5865F2',B:'#27AE60',C:'#E91E8C',D:'#F39C12'};
   spList.forEach((sp,i)=>{colorMap[sp]=['A','B','C','D'][i%4];});
   function fmt(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');}
 
   document.getElementById('root').innerHTML=`
-    <div class="hdr"><span>🎬</span><span class="hdr-title">${title}</span><span class="hdr-badge">${segs.length} 段</span></div>
+    <div class="hdr"><span>🎬</span><span class="hdr-title">${title}</span><span class="hdr-badge">${segs.length} Segs</span></div>
     <div class="stage"><div class="stage-bg">
       <div class="zone z-left" id="z-left"></div><div class="zone z-right" id="z-right"></div>
       <div class="zone z-center" id="z-center"></div><div class="zone z-top" id="z-top"></div>
@@ -735,7 +735,7 @@
     </div>`;
 
   const legendEl=document.getElementById('legend');
-  spList.forEach(sp=>{legendEl.innerHTML+=`<div class="leg-item"><div class="leg-dot" style="background:${hexColor[colorMap[sp]]}"></div><span>说话人 ${sp}</span></div>`;});
+  spList.forEach(sp=>{legendEl.innerHTML+=`<div class="leg-item"><div class="leg-dot" style="background:${hexColor[colorMap[sp]]}"></div><span>Speaker ${sp}</span></div>`;});
 
   let curTime=0,playing=false,lastTs=null,rafId=null,speed=1;
   const SPEEDS=[0.5,1,1.5,2];let spdIdx=1;const active=new Map();

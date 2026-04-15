@@ -9,23 +9,23 @@ Call `run_js` with a JSON `data` string. Pick the mode:
 
 ## camera (default)
 AR speech bubbles over live camera feed.
-Trigger: start, go, camera, video, 开始, 摄像头, or anything vague.
-data: {"mode":"camera","lang":"zh-CN"}
+Trigger: start, go, camera, video, or anything vague.
+data: {"mode":"camera","lang":"en-US"}
 
 ## snapshot
 Capture a photo and return it to you as an image.
-Trigger: look, see, 看看, 拍照, describe, what do you see.
+Trigger: look, see, take photo, describe, what do you see.
 data: {"mode":"snapshot","camera":"user"}
 
 ## listen
 Record audio, transcribe it, return text to you.
-Trigger: listen, hear, 听, 听一下.
-data: {"mode":"listen","seconds":5,"lang":"zh-CN"}
+Trigger: listen, hear.
+data: {"mode":"listen","seconds":5,"lang":"en-US"}
 
 ## record
 Audio-only recording with animated bubbles, no camera.
-Trigger: record, 录音, audio only.
-data: {"mode":"record","lang":"zh-CN"}
+Trigger: record, audio only.
+data: {"mode":"record","lang":"en-US"}
 
 ## play
 Animate a timestamped transcript with bubbles.
