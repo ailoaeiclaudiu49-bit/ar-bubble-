@@ -287,6 +287,56 @@
     rec.onerror = onError; rec.onend = onEnd; return rec;
   }
 
+  /* ── VAD: Voice Activity Detection via AnalyserNode ──
+     Monitors mic energy in real-time. Only sends audio chunks
+     to Whisper when speech energy exceeds threshold.
+     Reduces wasted inference on silence (~300-800ms saved per chunk).
+  */
+  const VAD = {
+    ctx: null, analyser: null, src: null,
+    speaking: false,
+    silenceStart: 0,
+    ENERGY_THRESHOLD: 0.015,  // RMS threshold for "speaking"
+    SILENCE_MS: 1500,         // ms of silence before "not speaking"
+
+    init(stream) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.src = this.ctx.createMediaStreamSource(stream);
+      this.src.connect(this.analyser);
+      this.speaking = false;
+      this.silenceStart = 0;
+      this._poll();
+    },
+
+    _poll() {
+      if (!this.analyser) return;
+      const data = new Float32Array(this.analyser.fftSize);
+      this.analyser.getFloatTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+      const rms = Math.sqrt(sum / data.length);
+
+      if (rms >= this.ENERGY_THRESHOLD) {
+        this.speaking = true;
+        this.silenceStart = 0;
+      } else {
+        if (this.speaking && !this.silenceStart) this.silenceStart = Date.now();
+        if (this.silenceStart && (Date.now() - this.silenceStart) > this.SILENCE_MS) {
+          this.speaking = false;
+        }
+      }
+      requestAnimationFrame(() => this._poll());
+    },
+
+    destroy() {
+      if (this.src) { try { this.src.disconnect(); } catch(_){} }
+      if (this.ctx && this.ctx.state !== 'closed') this.ctx.close();
+      this.analyser = null; this.src = null; this.ctx = null;
+    }
+  };
+
   /* ═════════════════════════════════════════════════════
      CAMERA MODE  ── AR bubbles anchored to detected face
   ═════════════════════════════════════════════════════ */
@@ -317,60 +367,26 @@
     const CHUNK_MS = 3000, MAX_BUBBLES = 3;
     let activeBubbles = [];
 
-    /* ── VAD: Voice Activity Detection via AnalyserNode ──
-       Monitors mic energy in real-time. Only sends audio chunks
-       to Whisper when speech energy exceeds threshold.
-       Reduces wasted inference on silence (~300-800ms saved per chunk).
-    */
-    const VAD = {
-      ctx: null, analyser: null, src: null,
-      speaking: false,
-      silenceStart: 0,
-      ENERGY_THRESHOLD: 0.015,  // RMS threshold for "speaking"
-      SILENCE_MS: 1500,         // ms of silence before "not speaking"
-
-      init(stream) {
-        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        this.analyser = this.ctx.createAnalyser();
-        this.analyser.fftSize = 512;
-        this.src = this.ctx.createMediaStreamSource(stream);
-        this.src.connect(this.analyser);
-        this.speaking = false;
-        this.silenceStart = 0;
-        this._poll();
-      },
-
-      _poll() {
-        if (!this.analyser) return;
-        const data = new Float32Array(this.analyser.fftSize);
-        this.analyser.getFloatTimeDomainData(data);
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
-        const rms = Math.sqrt(sum / data.length);
-
-        if (rms >= this.ENERGY_THRESHOLD) {
-          this.speaking = true;
-          this.silenceStart = 0;
-        } else {
-          if (this.speaking && !this.silenceStart) this.silenceStart = Date.now();
-          if (this.silenceStart && (Date.now() - this.silenceStart) > this.SILENCE_MS) {
-            this.speaking = false;
-          }
-        }
-        requestAnimationFrame(() => this._poll());
-      },
-
-      destroy() {
-        if (this.src) { try { this.src.disconnect(); } catch(_){} }
-        if (this.ctx && this.ctx.state !== 'closed') this.ctx.close();
-        this.analyser = null; this.src = null; this.ctx = null;
-      }
-    };
 
     // ── Status helpers ──
     function setStatus(dotClass, text) {
       camDot.className = 'dot' + (dotClass ? ' '+dotClass : '');
       camTxt.textContent = text;
+    }
+
+    function updateMicUI(state) {
+      if (state === 'recording') {
+        micBtn.className = 'cam-btn cam-mic-btn recording';
+        micBtn.textContent = '⏹️';
+        setStatus(smoothBox ? 'face' : 'live', smoothBox ? '👤 录音中…' : '🔴 录音中…');
+      } else if (state === 'thinking') {
+        micBtn.className = 'cam-btn cam-mic-btn thinking';
+        setStatus('think', '🤖 识别中…');
+      } else {
+        micBtn.className = 'cam-btn cam-mic-btn';
+        micBtn.textContent = '🎙️';
+        setStatus(smoothBox ? 'face' : '', smoothBox ? '👤 检测到人脸' : '📷 就绪');
+      }
     }
 
     // ── Camera ──
@@ -524,75 +540,59 @@
       }, 6000);
     }
 
-    // ── Whisper recording mode (with VAD) ──
+    // ── Recording Control ──
     async function startWhisperRec() {
       let audioStream;
       try { audioStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
       catch(e) { setStatus('', '🎙️ Mic denied'); return; }
 
-      // Start VAD monitoring
       VAD.init(audioStream);
-
       const mime = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'].find(t=>MediaRecorder.isTypeSupported(t))||'';
       mediaRec = new MediaRecorder(audioStream, mime ? {mimeType:mime} : {});
       mediaRec.ondataavailable = async e => {
         if (!isRecording || !e.data || e.data.size < 1000) return;
-
-        // VAD gate: skip chunk if no speech detected
         if (!VAD.speaking) {
-          setStatus(smoothBox?'face':'live', smoothBox?'👤 Waiting for speech...':'🔇 Silence...');
+          setStatus(smoothBox ? 'face' : 'live', smoothBox ? '👤 等待说话…' : '🔇 静默中…');
           return;
         }
-
-        micBtn.className = 'cam-btn cam-mic-btn thinking';
-        setStatus('think', '🤖 Recognizing...');
+        updateMicUI('thinking');
         const text = await W.transcribe(e.data);
         if (isRecording) {
-          micBtn.className = 'cam-btn cam-mic-btn recording';
-          setStatus(smoothBox?'face':'live', smoothBox?'👤 Recording...':'🔴 Recording...');
+          updateMicUI('recording');
           addCamBubble(text);
         }
       };
       mediaRec.start(CHUNK_MS);
       isRecording = true;
-      micBtn.className = 'cam-btn cam-mic-btn recording';
-      micBtn.textContent = '⏹️';
-      setStatus(smoothBox?'face':'live', smoothBox?'👤 Recording...':'🔴 Recording...');
+      updateMicUI('recording');
     }
 
-    function stopWhisperRec() {
-      isRecording = false;
-      VAD.destroy();
-      if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
-      mediaRec = null;
-      micBtn.className = 'cam-btn cam-mic-btn'; micBtn.textContent = '🎙️';
-      setStatus(smoothBox?'face':'', smoothBox?'👤 Face detected':'📷 Ready');
-    }
-
-    // ── Cloud speech mode ──
     function startCloudRec() {
       speechRec = buildSpeechRec(
         t => addCamBubble(t),
         t => { interimEl.textContent = t; interimEl.style.display = 'block'; },
-        e => { setStatus('', 'Error:'+e.error); stopCloudRec(); },
-        () => { if(isRecording) try{speechRec.start();}catch(_){} }
+        e => { setStatus('', '错误:' + e.error); stopRec(); },
+        () => { if (isRecording) try { speechRec.start(); } catch(_) {} }
       );
       if (!speechRec) { setStatus('', 'Speech recognition not supported'); return; }
       isRecording = true;
-      micBtn.className = 'cam-btn cam-mic-btn recording'; micBtn.textContent = '⏹️';
-      setStatus('live', '🔴 识别中…');
+      updateMicUI('recording');
+      if (!W.useWhisper) setStatus('live', '🔴 识别中…');
       try { speechRec.start(); } catch(_) {}
     }
 
-    function stopCloudRec() {
-      isRecording = false; interimEl.style.display = 'none';
-      try { speechRec && speechRec.stop(); } catch(_) {} speechRec = null;
-      micBtn.className = 'cam-btn cam-mic-btn'; micBtn.textContent = '🎙️';
-      setStatus(smoothBox?'face':'', smoothBox?'👤 Face detected':'📷 Ready');
+    function stopRec() {
+      isRecording = false;
+      interimEl.style.display = 'none';
+      VAD.destroy();
+      if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
+      mediaRec = null;
+      if (speechRec) { try { speechRec.stop(); } catch(_) {} speechRec = null; }
+      updateMicUI('idle');
     }
 
     micBtn.addEventListener('click', () => {
-      if (isRecording) { W.useWhisper ? stopWhisperRec() : stopCloudRec(); return; }
+      if (isRecording) { stopRec(); return; }
       if (W.useWhisper) startWhisperRec(); else startCloudRec();
     });
     flipBtn.addEventListener('click', () => { useFront = !useFront; smoothBox = null; faceBoxEl.classList.remove('detected'); startCamera(); });
@@ -645,6 +645,21 @@
     const COLORS    = ['A','B','C','D'];
     let count=0, isRec=false, speechRec=null, mediaRec=null;
 
+    function updateMicUI(state) {
+      if (state === 'recording') {
+        micBtn.className = 'mic-btn recording';
+        micBtn.textContent = '⏹️';
+        recStatus.innerHTML = '录音中…<br>说话吧';
+      } else if (state === 'thinking') {
+        micBtn.className = 'mic-btn thinking';
+        recStatus.innerHTML = '🤖 识别中…';
+      } else {
+        micBtn.className = 'mic-btn';
+        micBtn.textContent = '🎙️';
+        recStatus.innerHTML = '点击麦克风<br>开始录音';
+      }
+    }
+
     function addBubble(text) {
       if (!text||!text.trim()) return;
       const slot=COLORS[count++%4], el=document.createElement('div');
@@ -654,55 +669,50 @@
       interimEl.style.display='none';
     }
 
-    // VAD for record mode (reuse same pattern as camera mode)
-    const recVAD = {
-      ctx:null, analyser:null, src:null, speaking:false, silenceStart:0,
-      ENERGY_THRESHOLD:0.015, SILENCE_MS:1500,
-      init(stream){
-        this.ctx=new(window.AudioContext||window.webkitAudioContext)();
-        this.analyser=this.ctx.createAnalyser();this.analyser.fftSize=512;
-        this.src=this.ctx.createMediaStreamSource(stream);this.src.connect(this.analyser);
-        this.speaking=false;this.silenceStart=0;this._poll();
-      },
-      _poll(){
-        if(!this.analyser)return;
-        const d=new Float32Array(this.analyser.fftSize);this.analyser.getFloatTimeDomainData(d);
-        let s=0;for(let i=0;i<d.length;i++)s+=d[i]*d[i];
-        const rms=Math.sqrt(s/d.length);
-        if(rms>=this.ENERGY_THRESHOLD){this.speaking=true;this.silenceStart=0;}
-        else{if(this.speaking&&!this.silenceStart)this.silenceStart=Date.now();if(this.silenceStart&&Date.now()-this.silenceStart>this.SILENCE_MS)this.speaking=false;}
-        requestAnimationFrame(()=>this._poll());
-      },
-      destroy(){if(this.src)try{this.src.disconnect();}catch(_){}if(this.ctx&&this.ctx.state!=='closed')this.ctx.close();this.analyser=null;this.src=null;this.ctx=null;}
-    };
-
     async function startWhisperRec() {
-      let as; try{as=await navigator.mediaDevices.getUserMedia({audio:true});}catch(e){recStatus.textContent='🎙️ Denied';return;}
-      recVAD.init(as);
-      const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'].find(t=>MediaRecorder.isTypeSupported(t))||'';
-      mediaRec=new MediaRecorder(as,mime?{mimeType:mime}:{});
-      mediaRec.ondataavailable=async e=>{
-        if(!isRec||!e.data||e.data.size<1000)return;
-        if(!recVAD.speaking){recStatus.innerHTML='🔇 Silence...';return;}
-        micBtn.className='mic-btn thinking'; recStatus.innerHTML='🤖 Recognizing...';
-        const text=await W.transcribe(e.data);
-        if(isRec){micBtn.className='mic-btn recording';recStatus.innerHTML='Recording...<br>Speak now';addBubble(text);}
+      let as; try { as = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { recStatus.textContent = '🎙️ 被拒绝'; return; }
+      VAD.init(as);
+      const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+      mediaRec = new MediaRecorder(as, mime ? { mimeType: mime } : {});
+      mediaRec.ondataavailable = async e => {
+        if (!isRec || !e.data || e.data.size < 1000) return;
+        if (!VAD.speaking) { recStatus.innerHTML = '🔇 静默中…'; return; }
+        updateMicUI('thinking');
+        const text = await W.transcribe(e.data);
+        if (isRec) { updateMicUI('recording'); addBubble(text); }
       };
-      mediaRec.start(3000); isRec=true; micBtn.className='mic-btn recording'; micBtn.textContent='⏹️'; recStatus.innerHTML='Recording...<br>Speak now';
+      mediaRec.start(3000); isRec = true; updateMicUI('recording');
     }
-    function stopWhisperRec(){isRec=false;recVAD.destroy();if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();mediaRec=null;micBtn.className='mic-btn';micBtn.textContent='🎙️';recStatus.innerHTML='Tap mic<br>to start';}
-    function startCloudRec(){
-      speechRec=buildSpeechRec(t=>{addBubble(t);},t=>{interimEl.textContent=t;interimEl.style.display='block';},e=>{recStatus.textContent='Error:'+e.error;stopCloudRec();},()=>{if(isRec)try{speechRec.start();}catch(_){}});
-      if(!speechRec){recStatus.textContent='Speech recognition not supported';return;}
-      isRec=true;micBtn.className='mic-btn recording';micBtn.textContent='⏹️';recStatus.innerHTML='Recording...<br>Speak now';
-      try{speechRec.start();}catch(_){}
-    }
-    function stopCloudRec(){isRec=false;try{speechRec&&speechRec.stop();}catch(_){}speechRec=null;micBtn.className='mic-btn';micBtn.textContent='🎙️';interimEl.style.display='none';recStatus.innerHTML='Tap mic<br>to start';}
 
-    micBtn.addEventListener('click',()=>{if(isRec){W.useWhisper?stopWhisperRec():stopCloudRec();return;}W.useWhisper?startWhisperRec():startCloudRec();});
-    btnClear.addEventListener('click',()=>{zone.innerHTML='';count=0;interimEl.style.display='none';});
-    addSttToggle(ok=>{if(isRec){W.useWhisper?stopWhisperRec():stopCloudRec();isRec=false;}badge.textContent=(ok&&W.ready)?'Whisper ✅':'Cloud';});
-    W.load(ok=>{badge.textContent=ok?'Whisper ✅':'Cloud';if(ok)recStatus.innerHTML='🤖 Whisper Ready<br>Tap to start';});
+    function startCloudRec() {
+      speechRec = buildSpeechRec(
+        t => addBubble(t),
+        t => { interimEl.textContent = t; interimEl.style.display = 'block'; },
+        e => { recStatus.textContent = '错误:' + e.error; stopRec(); },
+        () => { if (isRec) try { speechRec.start(); } catch (_) {} }
+      );
+      if (!speechRec) { recStatus.textContent = '不支持语音识别'; return; }
+      isRec = true; updateMicUI('recording');
+      try { speechRec.start(); } catch (_) {}
+    }
+
+    function stopRec() {
+      isRec = false;
+      interimEl.style.display = 'none';
+      VAD.destroy();
+      if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
+      mediaRec = null;
+      if (speechRec) { try { speechRec.stop(); } catch (_) {} speechRec = null; }
+      updateMicUI('idle');
+    }
+
+    micBtn.addEventListener('click', () => {
+      if (isRec) { stopRec(); return; }
+      if (W.useWhisper) startWhisperRec(); else startCloudRec();
+    });
+    btnClear.addEventListener('click', () => { zone.innerHTML = ''; count = 0; interimEl.style.display = 'none'; });
+    addSttToggle(ok => { if (isRec) { stopRec(); } badge.textContent = (ok && W.ready) ? 'Whisper ✅' : '云端'; });
+    W.load(ok=>{badge.textContent=ok?'Whisper ✅':'云端';if(ok)recStatus.innerHTML='🤖 Whisper 就绪<br>点击开始';});
     return;
   }
 
